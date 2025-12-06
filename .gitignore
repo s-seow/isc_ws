@@ -1,0 +1,28 @@
+# --- Environment & secrets ---
+.env
+*.env
+
+# --- Python caches / compiled files ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+
+# --- ROS2 / colcon build artefacts ---
+build/
+install/
+log/
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- Local CSVs ---
+src/csv_loader/*.csv
