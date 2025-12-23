@@ -230,22 +230,23 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
                 continue
 
             info = summary_by_merchant[merchant]
-            r1 = info["runs"].get("1", 0)
-            r2 = info["runs"].get("2", 0)
-            r3 = info["runs"].get("3", 0)
+            item_qty_for_run_t1 = info["runs"].get("1", 0)
+            item_qty_for_run_t2 = info["runs"].get("2", 0)
+            item_qty_for_run_t3 = info["runs"].get("3", 0)
 
             print(f"\nMerchant: {merchant} ({home})")
             #print(f"  -> no. of orders : {info['orders']}")
             #print(f"  -> no. of items  : {info['items']}")
+            print(f"===============================================")
 
             # (A) 2D shelf metric
-            print(f"  -> item qty in terms of runs (T1/T2/T3): {r1}/{r2}/{r3}")
+            print(f"a. Item qty in terms of runs (T1/T2/T3): {item_qty_for_run_t1}/{item_qty_for_run_t2}/{item_qty_for_run_t3}")
 
             use_high = merchant.strip().lower() in HIGH_WINDOW_MERCHANTS
-            capacity = HIGH_TIME_WINDOW if use_high else LOW_TIME_WINDOW
+            merchant_window_capacity = HIGH_TIME_WINDOW if use_high else LOW_TIME_WINDOW
 
-            # (B) Time-window metric (no-mix), built FROM the 2D result
-            # Convert each terminal’s 2D-robots count into a duration item.
+            # (B) Time-window metric (no-mix), built FROM the 3D result
+            # Convert each terminal’s 3D-robots count into a duration item.
             runs_by_t = info["runs"]
             dur_items: List[int] = []
             dur_by_t = plan.get("dur_by_terminal", {})  
@@ -261,16 +262,16 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
                 dur_items += [2*w3] * runs_by_t["3"]
 
             if dur_items:
-                bins = pack_same_time(dur_items, capacity=capacity)
+                bins = pack_same_time(dur_items, merchant_window_capacity)
 
                 per_t_bins = _count_bins_per_terminal(bins, dur_by_t)
 
-                print(f"  -> time-window packing (capacity={capacity})")
+                print(f"b. Merchant window capacity = {merchant_window_capacity}")
                 for i, b in enumerate(bins, 1):
-                    print(f"        Robot {i}: {b} = {sum(b)} / {capacity}")
+                    print(f"    -> Robot {i}: {b} = {sum(b)} / {merchant_window_capacity}")
 
-                print(f"  -> total robots needed to fulfill all runs: {len(bins)}")
-                print(f"        By terminal: T1={per_t_bins['T1']}, T2={per_t_bins['T2']}, T3={per_t_bins['T3']}")
+                print(f"c. Total robots needed for all runs: {len(bins)}")
+                print(f"    -> By terminal: T1={per_t_bins['T1']}, T2={per_t_bins['T2']}, T3={per_t_bins['T3']}")
             else:
                 print(f"  -> time-window packing: robots=0 (no durations)")
 
@@ -351,8 +352,10 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
 
 # ---------- NOTES ON METRICS ----------
 
-# NEED: Number of runs per terminal - info["robots"]
-# NEED: Number of robots per terminal - per_t_bins
+# NEED: Number of runs per terminal from info["runs"]
+#   get item_qty_for_run_t1, item_qty_for_run_t2, item_qty_for_run_t3
+#   number of runs per terminal are calculated from 3D shelf packing (robots_needed_3d) of items into robot shelves
 
-# number of runs per terminal are calculated from 2D shelf packing (robots_needed_2d) of items into robot shelves
-# number of robots per terminal are calculated from time-window packing (pack_same_time) of runs into time windows
+# NEED: Number of robots per terminal from _count_bins_per_terminal
+#   get per_t_bins['T1'], per_t_bins['T2'], per_t_bins['T3']
+#   number of bins are calculated from time-window packing (pack_same_time) of runs into time windows, then bins put into per_t_bins to get bins per terminal
