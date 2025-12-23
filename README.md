@@ -15,7 +15,7 @@ Build after any changes made
 Source
 ``source install/setup.bash``
 
-Export src/ path
+Export /src/ path
 ``export PYTHONPATH="$PWD/src:$PYTHONPATH"``
 
 Run the optimizer node
