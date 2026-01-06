@@ -16,9 +16,19 @@ build/
 install/
 log/
 
+# --- Logs ---
+*.log
+
 # --- Editor / IDE ---
 .vscode/
 .idea/
+
+# --- MySQL / database dumps & exports ---
+*.sql
+*.sql.gz
+*.dump
+*.dmp
+*.bak
 
 # --- OS junk ---
 .DS_Store
