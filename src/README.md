@@ -31,22 +31,22 @@ The current workflow makes use of a local MySQL Database connection.
 
 ### Parameters
 
-**`isc_main_logic` package**
+1. **`isc_main_logic` package**
 
-The configurable parameters are found in `isc_main_logic/settings.py`.
+    The configurable parameters are found in `isc_main_logic/settings.py`.
 
-- `LOW_TIME_WINDOW`: Denotes the time window given to low volume merchants.
-- `HIGH_TIME_WINDOW`: Denotes the time window given to high volume merchants.
-- `HIGH_WINDOW_MERCHANTS`: Refers to merchants that are given a longer time window, e.g. Lotte Duty Free.
-- `robot_dimensions`: The dimensions of the delivery robot in millimeters.
+    - `LOW_TIME_WINDOW`: Denotes the time window given to low volume merchants.
+    - `HIGH_TIME_WINDOW`: Denotes the time window given to high volume merchants.
+    - `HIGH_WINDOW_MERCHANTS`: Refers to merchants that are given a longer time window, e.g. Lotte Duty Free.
+    - `robot_dimensions`: The dimensions of the delivery robot in millimeters.
 
-**`isc_task_optimizer`** 
+2. **`isc_task_optimizer` package** 
 
-The configurable parameters are handled by `isc_task_optimizer/settings.py`.
-- `TARGET_DATE_DEFAULT`: Denotes the order date that is ran by the optimizer.
-- `POLL_PERIOD_SEC_DEFAULT`: Denotes how often the node polls MySQL for new orders for date D.
-- `DEBOUNCE_SEC_DEFAULT`: Denotes how long to wait to batch new orders after first detecting a new order.
+    The configurable parameters are handled by `isc_task_optimizer/settings.py`.
+    - `TARGET_DATE_DEFAULT`: Denotes the order date that is ran by the optimizer.
+    - `POLL_PERIOD_SEC_DEFAULT`: Denotes how often the node polls MySQL for new orders for date D.
+    - `DEBOUNCE_SEC_DEFAULT`: Denotes how long to wait to batch new orders after first detecting a new order.
 
-**Environment variables**
+3. **Environment variables**
 
-For the MySQL database, the connection is handled in the root `.env` file. `.env.example` provides an example of how it should be configured.
+    For the MySQL database, the connection is handled in the root `.env` file. `.env.example` provides an example of how it should be configured.
