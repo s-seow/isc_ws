@@ -4,7 +4,7 @@ This is a ROS2/Python workspace, containing the `isc_task_optimizer` node and th
 
 The current workflow makes use of a local MySQL Database connection.
 
-## Setup
+## Set-up
 
 ### Dependencies 
 
