@@ -24,8 +24,6 @@ log/
 .idea/
 
 # --- MySQL / database dumps & exports ---
-*.sql
-*.sql.gz
 *.dump
 *.dmp
 *.bak
@@ -35,4 +33,4 @@ log/
 Thumbs.db
 
 # --- Local CSVs ---
-src/csv_loader/*.csv
+tools/mysql_loader/*.csv
