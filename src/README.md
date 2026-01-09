@@ -33,7 +33,7 @@ The current workflow makes use of a local MySQL Database connection.
 ```
 ├─ src/
 │  ├─ isc_main_logic/ 
-│  │  └─ main.py                        #
+│  │  └─ main_logic.py                  #
 │  └─ isc_task_optimizer/src/optimizer  
 │     └─ optimizer_node.py              #
 ├─ db/

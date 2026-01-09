@@ -9,13 +9,13 @@ import pymysql
 from isc_task_optimizer.settings import TARGET_DATE_DEFAULT, POLL_PERIOD_SEC_DEFAULT, DEBOUNCE_SEC_DEFAULT
 
 try:
-    from isc_main_logic.main import run_logic
+    from isc_main_logic.main_logic import run_logic
 except Exception:
     import sys, pathlib
     HERE = pathlib.Path(__file__).resolve()
     ROOT = HERE.parents[6]  
     sys.path.append(str(ROOT))
-    from isc_main_logic.main import run_logic
+    from isc_main_logic.main_logic import run_logic
 
 
 class OptimizerNode(Node):
