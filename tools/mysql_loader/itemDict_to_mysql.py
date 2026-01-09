@@ -20,7 +20,7 @@ DB_NAME = os.getenv("DB_NAME")
 # CSV CONFIG 
 # =========================================
 BASE_DIR = Path(__file__).resolve().parent
-CSV_PATH = BASE_DIR / "iSC_ItemDict.csv"   # <--- your item dictionary CSV
+CSV_PATH = BASE_DIR / "iSC_ItemDict.csv"   
 
 CSV_COL_MERCHANT_CODE   = "Merchant ID"
 CSV_COL_MERCHANT_NAME   = "Merchant"
