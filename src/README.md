@@ -29,6 +29,20 @@ The current workflow makes use of a local MySQL Database connection.
     ros2 run isc_task_optimizer optimizer_node
     ```
 
+### Structure 
+```
+├─ src/
+│  ├─ isc_main_logic/ 
+│  │  └─ main.py                        #
+│  └─ isc_task_optimizer/src/optimizer  
+│     └─ optimizer_node.py              #
+├─ db/
+│  └─ schema.sql                        #
+└─ tools/
+   ├─ itemDict_to_mysql.py              #
+   └─ orderData_to_mysql.py             #
+```
+
 ### Parameters
 
 1. **`isc_main_logic` package**
@@ -47,6 +61,8 @@ The current workflow makes use of a local MySQL Database connection.
     - `POLL_PERIOD_SEC_DEFAULT`: Denotes how often the node polls MySQL for new orders for date D.
     - `DEBOUNCE_SEC_DEFAULT`: Denotes how long to wait to batch new orders after first detecting a new order.
 
-3. **Environment variables**
+3. **MySQL Environment Variables**
 
     For the MySQL database, the connection is handled in the root `.env` file. `.env.example` provides an example of how it should be configured.
+
+    For the MySQL schema, it can be found in the root /db/ folder.
