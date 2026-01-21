@@ -38,7 +38,7 @@ The current workflow makes use of a local MySQL Database connection.
 │     └─ optimizer_node.py              #
 ├─ db/
 │  └─ schema.sql                        #
-└─ tools/
+└─ tools/mysql_loader
    ├─ itemDict_to_mysql.py              #
    └─ orderData_to_mysql.py             #
 ```
