@@ -1,3 +1,16 @@
+# ==============================
+# iSC Main Logic: run_logic()
+# ==============================
+#
+# Purpose:
+#   - Load orders from MySQL for a target day (D)
+#   - Include qualifying prior orders whose flights are in {D, D+1}
+#   - Filter invalid rows (missing terminal/dimensions/qty)
+#   - Summarise per merchant:
+#       (A) "runs" per terminal via 3D packing 
+#       (B) "robots" per terminal via time-window bin packing
+#   - Print a day-by-day report for debugging purpose
+
 from collections import defaultdict
 from datetime import timedelta
 from typing import Dict, List
@@ -6,28 +19,49 @@ import csv, sys, os, pymysql
 
 sys.dont_write_bytecode = True
 
+# ----------------------------
+# Packing and assignment helpers
+# ----------------------------
 from isc_main_logic.helpers.logic.robot_2d_packing_logic import runs_needed_2d
 from isc_main_logic.helpers.logic.robot_3d_packing_logic import runs_needed_3d
 from isc_main_logic.helpers.logic.robot_assignment_logic import pack_same_time  
 from isc_main_logic.helpers.utils import to_int
+
+# ----------------------------
+# Date related helpers
+# ----------------------------
 from isc_main_logic.helpers.dates_utils import _parse_ddmmyyyy, _fmt_ddmmyyyy, _parse_flight_date
+
+# ----------------------------
+# Routing helpers
+# ----------------------------
 from isc_main_logic.helpers.routing.compute_merchant_distances import compute_distances
 
+# ----------------------------
+# Parameters and environment
+# ----------------------------
 from isc_main_logic.settings import LOW_TIME_WINDOW, HIGH_TIME_WINDOW, HIGH_WINDOW_MERCHANTS, robot_dimensions
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
+# ----------------------------
+# Database settings
+# ----------------------------
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT"))
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
+
 def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
 
-    # ---------- helpers ----------
+    # ----------------------------
+    # Initializes DB connection
+    # ----------------------------
+    # Uses a single connection for the duration of run_logic()
     conn = pymysql.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -39,18 +73,36 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
         autocommit=False,
     )
 
+    # ============================================================
+    # Helper: Execute query and return dict rows
+    # ============================================================
     def _fetch_rows(query: str, params: tuple) -> List[dict]:
         with conn.cursor() as cur:
             cur.execute(query, params)
             return list(cur.fetchall())
 
+
+    # ============================================================
+    # Helper: Convert DB row to order dict
+    #
+    # Validates:
+    #   - Terminal in {1,2,3}
+    #   - Dimensions are present (mm) and are non-zero
+    #   - Quantity is positive integer
+    #
+    # Produces:
+    #   - A Dict of orders with parsed dates and labels
+    # ============================================================
     def _make_order_from_row(row, fallback_order_date, date_str_for_label):
+
         terminal = (row.get("Terminal") or "").strip()
         if terminal not in {"1", "2", "3"}:
             return None
 
         merchant = (row.get("Merchant") or "").strip() or "UNKNOWN"
         qty = to_int(row.get("Quantity"), 1)
+
+        # Dimensions in mm from ItemDictionary
         w = to_int(row.get("width_mm"), 0)
         l = to_int(row.get("length_mm"), 0)
         h = to_int(row.get("height_mm"), 0)
@@ -61,6 +113,7 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
         order_date = _parse_flight_date(row.get("Order date"), fallback_order_date)
         flight_date = _parse_flight_date(row.get("Flight date"), fallback_order_date)
 
+        # Label is for debug printing only
         label = (
             f"[{order_num}] {merchant} x {qty} | {(row.get('Details') or '').strip()} | "
             f"Order {date_str_for_label} | Flight {(row.get('Flight date') or '').strip()} "
@@ -79,8 +132,20 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
             "label": label,
         }
 
-    # ---------- DB load order helpers ---------- 
+
+    # ============================================================
+    # DB Loader (LOFOD): Load orders where OrderDateTime == D
+    #
+    # SQL Joins:
+    #   - iSCOrderData (orders table - for orders)
+    #   - MerchantData (merchant table - for merchant name lookup)
+    #   - ItemDictionary (item dimensions table - for dimensions by merchant+description)
+    #
+    # Returns:
+    #   - A list of normalized orders Dicts, with invalid rows dropped
+    # ============================================================
     def _load_orders_for_order_date(date_str: str) -> List[dict]:
+
         target = _parse_ddmmyyyy(date_str)
         orders: List[dict] = []
 
@@ -116,11 +181,19 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
 
         return orders
 
-    def _load_orders_prior_plus2(day) -> List[dict]:
-        """
-        PP2: Include prior orders where flight ∈ {D, D+1}
-        (OrderDateTime date < D, FlightDateTime date in {D, D+1})
-        """
+
+    # ============================================================
+    # DB Loader (PP1): Load prior orders where flight ∈ {D, D+1}
+    #
+    # Include:
+    #   - Prior orders where OrderDateTime date < D
+    #   - FlightDateTime date in {D, D+1}
+    #
+    # Returns:
+    #   - A list of normalized orders Dicts, with invalid rows dropped
+    # ============================================================
+    def _load_orders_prior_plus1(day) -> List[dict]:
+
         keep: List[dict] = []
 
         query = """
@@ -158,11 +231,19 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
         return keep
     
 
+    # ============================================================
+    # Aggregation: Summarise selected orders by merchant
+    #
+    # Output per each merchant:
+    #   - orders: the number of order rows that were selected for servicing
+    #   - items: the total number of items (sum of qty) across these orders
+    #   - runs: runs_needed_3d, a Dict of runs needed per terminal {"1","2","3"} (via 3D packing)
+    #
+    # Important Note:
+    #   - runs_needed_3d is derived from packing items into shelves in the robot
+    # ============================================================
     def _summarise_selected_by_merchant(selected_orders: List[dict]) -> Dict[str, Dict[str, dict]]:
-        """
-        Compute runs_by_t via 2D shelf packing (per terminal).
-        Track qty_by_t (counts of items per terminal).
-        """
+
         dims_by_mt = defaultdict(lambda: defaultdict(list))
         qty_by_mt = defaultdict(lambda: defaultdict(int))
         orders_count = defaultdict(int)
@@ -174,7 +255,7 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
             items_count[m] += o["qty"]
             qty_by_mt[m][t] += o["qty"]
             for _ in range(o["qty"]):
-                #dims_by_mt[m][t].append((o["w"], o["l"]))  # 2D
+                #dims_by_mt[m][t].append((o["w"], o["l"]))  # 2D old logic
                 dims_by_mt[m][t].append((o["w"], o["l"], o["h"]))
 
         summary: Dict[str, Dict[str, dict]] = {}
@@ -183,7 +264,7 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
             for t in ["1", "2", "3"]:
                 item_dims = dims_by_mt[m].get(t, [])
                 runs_by_t[t] = (
-                    #runs_needed_2d(item_dims, L=robot_dimensions["l"], W=robot_dimensions["w"])
+                    #runs_needed_2d(item_dims, L=robot_dimensions["l"], W=robot_dimensions["w"]) # 2D old logic
                     runs_needed_3d(item_dims, L=robot_dimensions["l"], W=robot_dimensions["w"], H=robot_dimensions["h"])
                     if item_dims
                     else 0
@@ -193,11 +274,22 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
                 "orders": orders_count[m],
                 "items": items_count[m],
                 "runs": runs_by_t,                       
-                "robots_max": max(runs_by_t.values()) if runs_by_t else 0,
-                #"qty_by_t": {t: int(qty_by_mt[m].get(t, 0)) for t in ["1", "2", "3"]},
+                #"robots_max": max(runs_by_t.values()) if runs_by_t else 0,             # Not used: debug variable
+                #"qty_by_t": {t: int(qty_by_mt[m].get(t, 0)) for t in ["1", "2", "3"]}, # Not used: debug variable
             }
         return summary
     
+
+    # ============================================================
+    # Helper: Convert packed bins into counts for each terminal
+    #
+    # Input:
+    #   - bins: Output of pack_same_time, each bin contains a duration of "items"
+    #   - dur_by_t: Duration it takes to travel to and fro for each terminal
+    # 
+    # Output:
+    #   - A Dict with counts of bins per terminal {"T1": int, "T2": int, "T3": int}, used in Optimizer Node
+    # ============================================================
     def _count_bins_per_terminal(bins: List[List[int]], dur_by_t: Dict[str, int]) -> Dict[str, int]:
         per_t_bins = {"T1": 0, "T2": 0, "T3": 0}
         dur_to_term = {}
@@ -214,12 +306,105 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
             if t:
                 per_t_bins[t] += 1
         return per_t_bins
+    
 
-    def _print_day_summary_by_merchant(day, summary_by_merchant, plans=None):
+    # ============================================================
+    # Metric: Compute robots needed per terminal (per merchant)
+    #
+    # Purpose:
+    #   - Converts "runs" (from 3D shelf packing) into "robots" (time-window bins)
+    #   - Returns structured metrics for RMF / ROS2 publisher use via /isc/merchant_summary topic
+    #
+    # Output per merchant:
+    #   - home
+    #   - runs_by_terminal: {"T1","T2","T3"}
+    #   - robots_by_terminal: {"T1","T2","T3"}
+    #   - robots_total
+    # ============================================================
+    def _compute_robots_by_terminal(
+            
+        summary_by_merchant: Dict[str, Dict[str, dict]],
+        plans: dict
+        ) -> Dict[str, dict]:
+
+        robots_by_merchant: Dict[str, dict] = {}
+
+        for merchant, info in summary_by_merchant.items():
+            plan = (plans or {}).get(merchant, {})
+            home = plan.get("home")
+            if not home:
+                continue
+
+            use_high = merchant.strip().lower() in HIGH_WINDOW_MERCHANTS
+            merchant_window_capacity = HIGH_TIME_WINDOW if use_high else LOW_TIME_WINDOW
+
+            runs_by_t = info["runs"]                    # keys: "1","2","3"
+            dur_by_t = plan.get("dur_by_terminal", {})  # keys: "T1","T2","T3"
+
+            # Convert each run into one duration item and pack_same_time enforces no mixing.
+            dur_items: List[int] = []
+            if runs_by_t.get("1", 0):
+                dur_items += [2 * int(dur_by_t.get("T1", 0))] * runs_by_t["1"]
+            if runs_by_t.get("2", 0):
+                dur_items += [2 * int(dur_by_t.get("T2", 0))] * runs_by_t["2"]
+            if runs_by_t.get("3", 0):
+                dur_items += [2 * int(dur_by_t.get("T3", 0))] * runs_by_t["3"]
+
+            if dur_items:
+                bins = pack_same_time(dur_items, merchant_window_capacity)
+                per_t_bins = _count_bins_per_terminal(bins, dur_by_t)
+                robots_total = len(bins)
+            else:
+                per_t_bins = {"T1": 0, "T2": 0, "T3": 0}
+                robots_total = 0
+                bins = []
+
+            robots_by_merchant[merchant] = {
+                "home": home,
+                "merchant_window_capacity": merchant_window_capacity,
+                "dur_by_terminal": {
+                    "T1": int(dur_by_t.get("T1", 0)),
+                    "T2": int(dur_by_t.get("T2", 0)),
+                    "T3": int(dur_by_t.get("T3", 0)),
+                },
+                "runs_by_terminal": {
+                    "T1": runs_by_t.get("1", 0),
+                    "T2": runs_by_t.get("2", 0),
+                    "T3": runs_by_t.get("3", 0),
+                },
+                "robots_by_terminal": {
+                    "T1": per_t_bins["T1"],
+                    "T2": per_t_bins["T2"],
+                    "T3": per_t_bins["T3"],
+                },
+                "robots_total": robots_total,
+                "bins": bins,
+            }
+
+        return robots_by_merchant
+
+
+    # ============================================================
+    # Debug Printer: Prints a day summary by each merchant
+    #
+    # Note:
+    #   - This version NO LONGER computes bins/robots.
+    #   - It prints from precomputed robots_by_merchant (as the single source of truth).
+    # 
+    # Prints:
+    #   (a) item qty in terms of runs per terminal (T1/T2/T3)
+    #   (b) how the packing behind the time-window bins per robot was derived
+    #   (c) total robots needed, then how this was derived by printing robots per terminal
+    # ============================================================
+    def _print_day_summary_by_merchant(day, summary_by_merchant, plans=None, robots_by_merchant=None):
+
         print(f"\n=== {day.isoformat()} ===")
         if not summary_by_merchant:
             print("\n(no orders serviced)\n")
             return
+
+        if robots_by_merchant is None:
+            robots_by_merchant = {}
 
         skipped = 0
         for merchant in sorted(summary_by_merchant.keys()):
@@ -230,132 +415,110 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
                 continue
 
             info = summary_by_merchant[merchant]
+
             item_qty_for_run_t1 = info["runs"].get("1", 0)
             item_qty_for_run_t2 = info["runs"].get("2", 0)
             item_qty_for_run_t3 = info["runs"].get("3", 0)
 
-            print(f"\nMerchant: {merchant} ({home})")
-            #print(f"  -> no. of orders : {info['orders']}")
-            #print(f"  -> no. of items  : {info['items']}")
-            print(f"===============================================")
+            metrics = robots_by_merchant.get(merchant, {})
 
-            # (A) 2D shelf metric
-            print(f"a. Item qty in terms of runs (T1/T2/T3): {item_qty_for_run_t1}/{item_qty_for_run_t2}/{item_qty_for_run_t3}")
+            merchant_window_capacity = int(metrics.get("merchant_window_capacity", 0))
+            bins = metrics.get("bins", []) or []
+            robots_total = int(metrics.get("robots_total", 0))
+            robots_by_t = metrics.get("robots_by_terminal", {"T1": 0, "T2": 0, "T3": 0})
 
-            use_high = merchant.strip().lower() in HIGH_WINDOW_MERCHANTS
-            merchant_window_capacity = HIGH_TIME_WINDOW if use_high else LOW_TIME_WINDOW
+            print()
+            print("┌" + "─" * 58)
+            print(f"│ Merchant: {merchant}")
+            print(f"│   Home: {home}")
+            print("│")
 
-            # (B) Time-window metric (no-mix), built FROM the 3D result
-            # Convert each terminal’s 3D-robots count into a duration item.
-            runs_by_t = info["runs"]
-            dur_items: List[int] = []
-            dur_by_t = plan.get("dur_by_terminal", {})  
+            print(
+                "│   Runs by terminal (item_qty_for_run_t): "
+                f"T1={item_qty_for_run_t1}, T2={item_qty_for_run_t2}, T3={item_qty_for_run_t3}"
+            )
 
-            if runs_by_t.get("1", 0):
-                w1 = int(dur_by_t.get("T1", 0))
-                dur_items += [2*w1] * runs_by_t["1"]
-            if runs_by_t.get("2", 0):
-                w2 = int(dur_by_t.get("T2", 0))
-                dur_items += [2*w2] * runs_by_t["2"]
-            if runs_by_t.get("3", 0):
-                w3 = int(dur_by_t.get("T3", 0))
-                dur_items += [2*w3] * runs_by_t["3"]
+            if not metrics:
+                print("│   Merchant window capacity: (missing metrics)")
+                print("│   Time-window bins (debug): (missing metrics)")
+                print("│   Robots by terminal (robots_by_terminal): T1=0, T2=0, T3=0")
+                print("│   Total robots needed for all runs: 0")
+                print("└" + "─" * 58)
+                continue
 
-            if dur_items:
-                bins = pack_same_time(dur_items, merchant_window_capacity)
+            print(f"│   Merchant window capacity: {merchant_window_capacity}")
 
-                per_t_bins = _count_bins_per_terminal(bins, dur_by_t)
-
-                print(f"b. Merchant window capacity = {merchant_window_capacity}")
+            print("│   Time-window bins (debug):")
+            if bins:
                 for i, b in enumerate(bins, 1):
-                    print(f"    -> Robot {i}: {b} = {sum(b)} / {merchant_window_capacity}")
-
-                print(f"c. Total robots needed for all runs: {len(bins)}")
-                print(f"    -> By terminal: T1={per_t_bins['T1']}, T2={per_t_bins['T2']}, T3={per_t_bins['T3']}")
+                    prefix = "│     ├─" if i < len(bins) else "│     └─"
+                    print(f"{prefix} Robot {i}: {b} = {sum(b)} / {merchant_window_capacity}")
             else:
-                print(f"  -> time-window packing: robots=0 (no durations)")
+                print("│     └─ (no bins)")
 
-            #total = (plans or {}).get(merchant, {}).get("total", 0)
-            #print(f"  -> total travel time for 1 robot (route planner): {total}")
+            print("│")
+            print(
+                "│   Robots by terminal (robots_by_terminal): "
+                f"T1={robots_by_t.get('T1', 0)}, T2={robots_by_t.get('T2', 0)}, T3={robots_by_t.get('T3', 0)}"
+            )
+            print(f"│   Total robots needed for all runs: {robots_total}")
+            print("└" + "─" * 58)
 
         if skipped:
             print(f"\n(hidden {skipped} merchants not part of iSC trials)")
- 
 
-    # ---------- interactive loop ----------
+
+    # ============================================================
+    # Driver: Main processing logic for a single day
+    #
+    # Pipeline:
+    #   1) Load LOFOD orders (OrderDate = D)
+    #   2) Load PP1 orders (OrderDate < D and FlightDate ∈ {D, D+1})
+    #   3) Dedupe orders within this run
+    #   4) Select serviceable orders (FlightDate ∈ {D, D+1})
+    #   5) Summarise selected orders by merchant and print report
+    # ============================================================
     day = _parse_ddmmyyyy(target_date)
-    pending: List[dict] = []
-    served_ids = set()
-    last_day_summary: Dict[str, Dict[str, dict]] = {}
+    date_key = _fmt_ddmmyyyy(day)
 
-    while True:
-        date_key = _fmt_ddmmyyyy(day)
+    # Calls DB Loader (LOFOD)
+    todays_new = _load_orders_for_order_date(date_key)
+    if todays_new:
+        print(f"\nLoaded {len(todays_new)} new orders for Order date (D): {date_key}.")
+    else:
+        print(f"\nNo new orders for Order date {date_key}.")
 
-        # LOFOD: Load today's new orders (Order date = D)
-        todays_new = _load_orders_for_order_date(date_key)
-        if todays_new:
-            print(f"\nLoaded {len(todays_new)} new orders for Order date (D): {date_key}.")
-        else:
-            print(f"\nNo new orders for Order date {date_key}.")
+    # Calls DB Loader (PP1)
+    prior_plus1 = _load_orders_prior_plus1(day)  
+    if prior_plus1:
+        print(f"Included {len(prior_plus1)} prior orders with flight in D/D+1.")
 
-        # PP2: Include prior orders where flight ∈ {D, D+1}
-        prior_plus2 = [o for o in _load_orders_prior_plus2(day) if o["id"] not in served_ids]
-        if prior_plus2:
-            print(f"Included {len(prior_plus2)} prior orders with flight in D/D+1.")
+    # Dedupe for today's processing
+    combined = []
+    seen_ids = set()
+    for o in todays_new + prior_plus1:
+        if o["id"] not in seen_ids:
+            combined.append(o)
+            seen_ids.add(o["id"])
 
-        if pending:
-            print(f"Pending carried from previous day: {len(pending)}")
+    # Select orders to service (flight offset 0 or 1)
+    selected = []
+    for o in combined:
+        offset = (o["flight_date"] - day).days
+        if 0 <= offset <= 1:
+            selected.append(o)
 
-        # Merge & dedupe
-        id_seen = {o["id"] for o in pending}
-        for o in todays_new + prior_plus2:
-            if o["id"] not in id_seen:
-                pending.append(o)
-                id_seen.add(o["id"])
+    print(f"\nServiced {len(selected)} orders today.")
+    
+    runs_summary_by_merchant = _summarise_selected_by_merchant(selected)
 
-        # Select to service (flight offset 0 or 1), carry others
-        selected, carry = [], []
-        for o in pending:
-            offset = (o["flight_date"] - day).days
-            if 0 <= offset <= 1:
-                selected.append(o)
-            else:
-                carry.append(o)
+    routing_plan_by_merchant = compute_distances(runs_summary_by_merchant)
 
-        for o in selected:
-            served_ids.add(o["id"])
-            #print(f"  OK   - {o['label']}")
+    robots_summary_by_merchant = _compute_robots_by_terminal(
+        runs_summary_by_merchant, 
+        routing_plan_by_merchant 
+    )
 
-        # Summarize and print
-        print(f"\nServiced {len(selected)} orders today.")
-        last_day_summary = _summarise_selected_by_merchant(selected)
+    _print_day_summary_by_merchant(day, runs_summary_by_merchant, routing_plan_by_merchant, robots_summary_by_merchant)
 
-        # Compute plans to get 'home'
-        plans = compute_distances(last_day_summary)
-        _print_day_summary_by_merchant(day, last_day_summary, plans)
-
-        # Backlog & next step
-        if carry:
-            next_day_str = _fmt_ddmmyyyy(day + timedelta(days=1))
-            print(f"\nCarried forward {len(carry)} orders to next day {next_day_str}.")
-        else:
-            print("No backlog. All orders have appeared.")
-
-        ans = input("\n>> Continue to next day? (Y/N): ").strip().lower()
-        if ans not in {"y", "yes"}:
-            break
-        pending = carry
-        day = day + timedelta(days=1)
-
-    return last_day_summary
-
-
-# ---------- NOTES ON METRICS ----------
-
-# NEED: Number of runs per terminal from info["runs"]
-#   get item_qty_for_run_t1, item_qty_for_run_t2, item_qty_for_run_t3
-#   number of runs per terminal are calculated from 3D shelf packing (robots_needed_3d) of items into robot shelves
-
-# NEED: Number of robots per terminal from _count_bins_per_terminal
-#   get per_t_bins['T1'], per_t_bins['T2'], per_t_bins['T3']
-#   number of bins are calculated from time-window packing (pack_same_time) of runs into time windows, then bins put into per_t_bins to get bins per terminal
+    return robots_summary_by_merchant
