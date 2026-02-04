@@ -22,7 +22,6 @@ sys.dont_write_bytecode = True
 # ----------------------------
 # Packing and assignment helpers
 # ----------------------------
-from isc_main_logic.helpers.logic.robot_2d_packing_logic import runs_needed_2d
 from isc_main_logic.helpers.logic.robot_3d_packing_logic import runs_needed_3d
 from isc_main_logic.helpers.logic.robot_assignment_logic import pack_same_time  
 from isc_main_logic.helpers.utils import to_int
@@ -40,7 +39,7 @@ from isc_main_logic.helpers.routing.compute_merchant_distances import compute_di
 # ----------------------------
 # Parameters and environment
 # ----------------------------
-from isc_main_logic.settings import LOW_TIME_WINDOW, HIGH_TIME_WINDOW, HIGH_WINDOW_MERCHANTS, robot_dimensions
+from isc_main_logic.settings import LOW_TIME_WINDOW, HIGH_TIME_WINDOW, HIGH_WINDOW_MERCHANTS, ROBOT_DIMENSIONS
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -264,8 +263,8 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
             for t in ["1", "2", "3"]:
                 item_dims = dims_by_mt[m].get(t, [])
                 runs_by_t[t] = (
-                    #runs_needed_2d(item_dims, L=robot_dimensions["l"], W=robot_dimensions["w"]) # 2D old logic
-                    runs_needed_3d(item_dims, L=robot_dimensions["l"], W=robot_dimensions["w"], H=robot_dimensions["h"])
+                    #runs_needed_2d(item_dims, L=ROBOT_DIMENSIONS["l"], W=ROBOT_DIMENSIONS["w"]) # 2D old logic
+                    runs_needed_3d(item_dims, L=ROBOT_DIMENSIONS["l"], W=ROBOT_DIMENSIONS["w"], H=ROBOT_DIMENSIONS["h"])
                     if item_dims
                     else 0
                 )
@@ -360,25 +359,25 @@ def run_logic(target_date: str) -> Dict[str, Dict[str, dict]]:
                 bins = []
 
             robots_by_merchant[merchant] = {
-                "home": home,
-                "merchant_window_capacity": merchant_window_capacity,
-                "dur_by_terminal": {
-                    "T1": int(dur_by_t.get("T1", 0)),
-                    "T2": int(dur_by_t.get("T2", 0)),
-                    "T3": int(dur_by_t.get("T3", 0)),
-                },
+                "home": home, 
+                "merchant_window_capacity": merchant_window_capacity, 
+                # "dur_by_terminal": {
+                #     "T1": int(dur_by_t.get("T1", 0)),  
+                #     "T2": int(dur_by_t.get("T2", 0)),
+                #     "T3": int(dur_by_t.get("T3", 0)),
+                # },
                 "runs_by_terminal": {
-                    "T1": runs_by_t.get("1", 0),
-                    "T2": runs_by_t.get("2", 0),
-                    "T3": runs_by_t.get("3", 0),
+                    "T1": runs_by_t.get("1", 0), 
+                    "T2": runs_by_t.get("2", 0), 
+                    "T3": runs_by_t.get("3", 0), 
                 },
                 "robots_by_terminal": {
                     "T1": per_t_bins["T1"],
                     "T2": per_t_bins["T2"],
                     "T3": per_t_bins["T3"],
                 },
-                "robots_total": robots_total,
-                "bins": bins,
+                "robots_total": robots_total, 
+                # "bins": bins, 
             }
 
         return robots_by_merchant

@@ -1,9 +1,9 @@
 from typing import List, Tuple
 from itertools import permutations
 
-from isc_main_logic.settings import robot_dimensions
+from isc_main_logic.settings import ROBOT_DIMENSIONS
 
-def runs_needed_3d(item_dims_3d: List[Tuple[int, int, int]], L=robot_dimensions["l"], W=robot_dimensions["w"], H=robot_dimensions["h"]) -> int:
+def runs_needed_3d(item_dims_3d: List[Tuple[int, int, int]], L=ROBOT_DIMENSIONS["l"], W=ROBOT_DIMENSIONS["w"], H=ROBOT_DIMENSIONS["h"]) -> int:
     """
     3D shelf packing with layers stacked along H (height).
     Inside each layer, pack rows along L and fill across W (rotation allowed).

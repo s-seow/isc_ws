@@ -1,9 +1,9 @@
 from typing import List, Tuple
 from collections import defaultdict
 
-from isc_main_logic.settings import robot_dimensions
+from isc_main_logic.settings import ROBOT_DIMENSIONS
 
-def runs_needed_2d(item_dims: List[Tuple[int, int]], L=robot_dimensions["l"], W=robot_dimensions["w"]) -> int:
+def runs_needed_2d(item_dims: List[Tuple[int, int]], L=ROBOT_DIMENSIONS["l"], W=ROBOT_DIMENSIONS["w"]) -> int:
     """
     Shelf packing with L vertical (long side) and W horizontal (short side).
     Each item is (length_mm, width_mm). Rotation allowed per item.
@@ -58,5 +58,6 @@ def runs_needed_2d(item_dims: List[Tuple[int, int]], L=robot_dimensions["l"], W=
                         used_L = iL
                         placed = True
                         break
+                    
     return robots
 
