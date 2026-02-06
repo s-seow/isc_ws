@@ -1,4 +1,6 @@
 from setuptools import setup, find_packages
+from glob import glob
+import os
 
 package_name = 'isc_task_optimizer'
 
@@ -10,6 +12,9 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/isc_task_optimizer']),
         ('share/' + package_name, ['package.xml']),
+        
+        (os.path.join('share', package_name, 'optimizer_logic', 'helpers', 'routing', 'maps'),
+        glob('src/isc_task_optimizer/optimizer_logic/helpers/routing/maps/*.json')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,7 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             # ros2 run isc_task_optimizer optimizer_node
-            'optimizer_node = isc_optimizer.optimizer.optimizer_node:main',
+            'optimizer_node = isc_task_optimizer.optimizer_node:main',
         ],
     },
 )
