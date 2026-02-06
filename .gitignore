@@ -32,5 +32,6 @@ log/
 .DS_Store
 Thumbs.db
 
-# --- Local CSVs ---
+# --- Local saves ---
 tools/mysql_loader/*.csv
+temp/*
