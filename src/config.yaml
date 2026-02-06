@@ -1,0 +1,8 @@
+optimizer_config:
+  target_date: "1/12/2024"
+  db_new_poll_period_sec: 7
+  db_new_debounce_sec: 5
+  scheduled_run_period_sec: 20
+
+subscriber_config:
+  merchant_window_capacity_default: 0
